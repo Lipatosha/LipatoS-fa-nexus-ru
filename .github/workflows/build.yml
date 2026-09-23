@@ -1,0 +1,54 @@
+name: Проверка и сборка модуля
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - module.json
+      - scripts/**
+      - styles/**
+      - lang/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверка JavaScript
+        shell: bash
+        run: |
+          find scripts -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - name: Проверка JSON
+        shell: bash
+        run: |
+          jq empty module.json
+          find lang -type f -name '*.json' -print0 | xargs -0 -n1 jq empty
+
+      - name: Сборка ZIP
+        id: build
+        shell: bash
+        run: |
+          VERSION=$(jq -r '.version' module.json)
+          ZIP="lipatos-fa-nexus-ru-v${VERSION}.zip"
+          rm -f "$ZIP"
+          zip -r "$ZIP" module.json scripts styles lang README.md CHANGELOG.md
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Публикация ZIP в репозитории
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${{ steps.build.outputs.zip }}"
+          if git diff --cached --quiet; then
+            echo "ZIP уже актуален"
+            exit 0
+          fi
+          git commit -m "Собрать ${{ steps.build.outputs.zip }} [skip ci]"
+          git push
