@@ -1,0 +1,45 @@
+{
+  "id": "fa-nexus-ru",
+  "title": "LipatoS - Русификатор FA Nexus",
+  "description": "Русский перевод интерфейса FA Nexus для Foundry VTT v14. Работает отдельным модулем, динамически переводит интерфейс и не изменяет файлы оригинального FA Nexus.",
+  "version": "1.0.0",
+  "authors": [
+    {
+      "name": "LipatoS"
+    }
+  ],
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14",
+    "maximum": "14"
+  },
+  "relationships": {
+    "requires": [
+      {
+        "id": "fa-nexus",
+        "type": "module",
+        "compatibility": {
+          "minimum": "0.5.3"
+        }
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/fa-nexus-ru.js"
+  ],
+  "styles": [
+    "styles/fa-nexus-ru.css"
+  ],
+  "languages": [
+    {
+      "lang": "ru",
+      "name": "Русский",
+      "path": "lang/ru.json"
+    }
+  ],
+  "url": "https://github.com/Lipatosha/LipatoS-fa-nexus-ru",
+  "manifest": "https://raw.githubusercontent.com/Lipatosha/LipatoS-fa-nexus-ru/main/module.json",
+  "download": "https://raw.githubusercontent.com/Lipatosha/LipatoS-fa-nexus-ru/main/lipatos-fa-nexus-ru-v1.0.0.zip",
+  "readme": "https://github.com/Lipatosha/LipatoS-fa-nexus-ru/blob/main/README.md",
+  "bugs": "https://github.com/Lipatosha/LipatoS-fa-nexus-ru/issues"
+}
