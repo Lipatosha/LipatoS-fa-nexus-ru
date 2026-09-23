@@ -822,24 +822,52 @@ const NEXUS_WINDOW_TITLES = [
   "Portal Texture Grid"
 ];
 
-function isNexusScope(el) {
-  if (!isElement(el)) return false;
-  if (el.matches?.(NEXUS_SELECTOR) || el.closest?.(NEXUS_SELECTOR)) return true;
+const NEXUS_WINDOW_SELECTOR = ".application, .app, .window-app, .dialog";
+const NEXUS_SCOPE_ATTR = "data-fa-nexus-ru-scope";
+const NEXUS_SCOPE_SELECTOR = `[${NEXUS_SCOPE_ATTR}="true"]`;
+const NEXUS_SETTINGS_SELECTOR = "[name^='fa-nexus.'], [data-setting-id^='fa-nexus.'], [data-key^='fa-nexus.']";
 
-  const win = el.closest?.(".application, .app, .window-app, .dialog");
-  if (!win) return false;
-
-  // Заголовок окна Foundry находится вне внутреннего контейнера FA Nexus.
-  // Поэтому считаем всё окно областью Nexus, если внутри есть хотя бы один
-  // элемент с фирменным классом/ID модуля.
-  if (win.querySelector?.(NEXUS_SELECTOR)) return true;
-
+function isKnownNexusWindow(win) {
+  if (!isElement(win)) return false;
   const title = win.querySelector?.(".window-title, .window-header h4, header h4")?.textContent?.trim() ?? "";
   return NEXUS_WINDOW_TITLES.some(t => title.includes(t));
 }
 
-function translateAttributes(el) {
-  if (!isElement(el) || !isNexusScope(el)) return;
+function markNexusScope(el) {
+  if (!isElement(el)) return null;
+
+  const existing = el.closest?.(NEXUS_SCOPE_SELECTOR);
+  if (existing) return existing;
+
+  const branded = el.matches?.(NEXUS_SELECTOR)
+    ? el
+    : el.closest?.(NEXUS_SELECTOR);
+
+  if (branded) {
+    const win = branded.closest?.(NEXUS_WINDOW_SELECTOR);
+    const scope = win || branded;
+    scope.setAttribute(NEXUS_SCOPE_ATTR, "true");
+    return scope;
+  }
+
+  const win = el.matches?.(NEXUS_WINDOW_SELECTOR)
+    ? el
+    : el.closest?.(NEXUS_WINDOW_SELECTOR);
+
+  if (win && isKnownNexusWindow(win)) {
+    win.setAttribute(NEXUS_SCOPE_ATTR, "true");
+    return win;
+  }
+
+  return null;
+}
+
+function isNexusScope(el) {
+  return !!(isElement(el) && el.closest?.(NEXUS_SCOPE_SELECTOR));
+}
+
+function translateAttributesInScope(el) {
+  if (!isElement(el)) return;
   for (const attr of ["title", "placeholder", "aria-label"]) {
     if (!el.hasAttribute(attr)) continue;
     const oldValue = el.getAttribute(attr);
@@ -855,32 +883,95 @@ function translateAttributes(el) {
   }
 }
 
-function translateTextNode(node) {
+function translateTextNodeInScope(node) {
   if (!node || node.nodeType !== Node.TEXT_NODE) return;
   const parent = node.parentElement;
-  if (!parent || !isNexusScope(parent)) return;
-  if (["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) return;
+  if (!parent || ["SCRIPT", "STYLE", "TEXTAREA"].includes(parent.tagName)) return;
   const oldValue = node.nodeValue;
   const newValue = translateString(oldValue);
   if (newValue !== oldValue) node.nodeValue = newValue;
 }
 
-function translateTree(root) {
+function translateTreeInScope(root) {
   if (!root) return;
+
   if (root.nodeType === Node.TEXT_NODE) {
-    translateTextNode(root);
+    translateTextNodeInScope(root);
     return;
   }
   if (!isElement(root)) return;
 
-  translateAttributes(root);
+  translateAttributesInScope(root);
+
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-  let current = walker.currentNode;
+  let current = walker.nextNode();
   while (current) {
-    if (current.nodeType === Node.TEXT_NODE) translateTextNode(current);
-    else translateAttributes(current);
+    if (current.nodeType === Node.TEXT_NODE) translateTextNodeInScope(current);
+    else translateAttributesInScope(current);
     current = walker.nextNode();
   }
+}
+
+function discoverNexusScopes(root) {
+  if (!root) return [];
+
+  const scopes = new Set();
+  const register = (candidate) => {
+    const scope = markNexusScope(candidate);
+    if (scope) scopes.add(scope);
+  };
+
+  if (root.nodeType === Node.TEXT_NODE) {
+    const parent = root.parentElement;
+    const existing = parent?.closest?.(NEXUS_SCOPE_SELECTOR);
+    if (existing) scopes.add(existing);
+    return Array.from(scopes);
+  }
+
+  if (!isElement(root)) return [];
+
+  const existing = root.closest?.(NEXUS_SCOPE_SELECTOR);
+  if (existing) {
+    scopes.add(existing);
+    return Array.from(scopes);
+  }
+
+  if (root.matches?.(NEXUS_SELECTOR) || root.matches?.(NEXUS_WINDOW_SELECTOR)) {
+    register(root);
+  }
+
+  // ВАЖНО: поиск выполняется ОДИН раз только внутри нового поддерева.
+  // Старый код запускал querySelector по целому окну для КАЖДОГО текста/элемента,
+  // что превращало открытие большого листа D&D5e почти в O(n²).
+  const candidates = root.querySelectorAll?.(`${NEXUS_SELECTOR}, ${NEXUS_WINDOW_SELECTOR}`) ?? [];
+  for (const candidate of candidates) {
+    if (candidate.matches?.(NEXUS_SELECTOR) || isKnownNexusWindow(candidate)) {
+      register(candidate);
+    }
+  }
+
+  return Array.from(scopes);
+}
+
+function translateTree(root) {
+  if (!root) return;
+
+  if (root.nodeType === Node.TEXT_NODE) {
+    const scope = root.parentElement?.closest?.(NEXUS_SCOPE_SELECTOR);
+    if (scope) translateTextNodeInScope(root);
+    return;
+  }
+
+  if (!isElement(root)) return;
+
+  const existingScope = root.closest?.(NEXUS_SCOPE_SELECTOR);
+  if (existingScope) {
+    translateTreeInScope(root);
+    return;
+  }
+
+  const scopes = discoverNexusScopes(root);
+  for (const scope of scopes) translateTreeInScope(scope);
 }
 
 function translateFaNexusSettingsRegistry() {
@@ -911,7 +1002,7 @@ function translateFaNexusSettingsRegistry() {
 
 function translateSettingsDom(root = document) {
   try {
-    const inputs = root.querySelectorAll?.("[name^='fa-nexus.'], [data-setting-id^='fa-nexus.'], [data-key^='fa-nexus.']") ?? [];
+    const inputs = root.querySelectorAll?.(NEXUS_SETTINGS_SELECTOR) ?? [];
     for (const input of inputs) {
       const group = input.closest?.(".form-group, .form-fields, li, section") ?? input.parentElement;
       if (!group) continue;
@@ -938,18 +1029,64 @@ function translateSettingsDom(root = document) {
   } catch (_) { /* интерфейс настроек может быть закрыт */ }
 }
 
+function nodeContainsNexusSettings(node) {
+  if (!isElement(node)) return false;
+  return node.matches?.(NEXUS_SETTINGS_SELECTOR)
+    || !!node.querySelector?.(NEXUS_SETTINGS_SELECTOR);
+}
+
 function installObserver() {
+  globalThis.__faNexusRuObserver?.disconnect?.();
+
   const observer = new MutationObserver((mutations) => {
+    const settingsRoots = new Set();
+
     for (const mutation of mutations) {
       if (mutation.type === "characterData") {
-        translateTextNode(mutation.target);
+        const parent = mutation.target?.parentElement;
+        // Для обычного Foundry/D&D5e это одна дешёвая closest-проверка.
+        // Никаких querySelector по всему окну.
+        if (parent?.closest?.(NEXUS_SCOPE_SELECTOR)) {
+          translateTextNodeInScope(mutation.target);
+        }
         continue;
       }
-      for (const node of mutation.addedNodes) translateTree(node);
+
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const parent = node.parentElement;
+          if (parent?.closest?.(NEXUS_SCOPE_SELECTOR)) {
+            translateTextNodeInScope(node);
+          }
+          continue;
+        }
+
+        if (!isElement(node)) continue;
+
+        const existingScope = node.closest?.(NEXUS_SCOPE_SELECTOR);
+        if (existingScope) {
+          translateTreeInScope(node);
+        } else {
+          const scopes = discoverNexusScopes(node);
+          for (const scope of scopes) translateTreeInScope(scope);
+        }
+
+        if (nodeContainsNexusSettings(node)) {
+          const settingsRoot = node.closest?.(NEXUS_WINDOW_SELECTOR) || node;
+          settingsRoots.add(settingsRoot);
+        }
+      }
     }
-    translateSettingsDom(document);
+
+    // Больше НЕ сканируем весь document после каждой мутации.
+    for (const root of settingsRoots) translateSettingsDom(root);
   });
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true
+  });
   globalThis.__faNexusRuObserver = observer;
 }
 
@@ -965,14 +1102,21 @@ Hooks.once("ready", () => {
   }
 
   translateFaNexusSettingsRegistry();
-  translateTree(document.body);
+
+  // На старте ищем только реальные области FA Nexus. Не обходим весь DOM
+  // и не вызываем проверку области для каждого узла страницы.
+  for (const scope of discoverNexusScopes(document.body)) {
+    translateTreeInScope(scope);
+  }
   translateSettingsDom(document);
   installObserver();
 
-  // Повтор после отрисовки приложений Foundry/Nexus.
+  // Повтор после отрисовки приложений Foundry/Nexus — только discovery,
+  // без полного translateTree(document.body).
   setTimeout(() => {
-    translateTree(document.body);
-    translateSettingsDom(document);
+    for (const scope of discoverNexusScopes(document.body)) {
+      translateTreeInScope(scope);
+    }
   }, 500);
 
   console.log(`${MODULE_ID} | Русский перевод FA Nexus включён`);
