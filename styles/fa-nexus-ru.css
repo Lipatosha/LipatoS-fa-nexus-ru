@@ -1,0 +1,7 @@
+/* Небольшие правки для более длинных русских подписей */
+.fa-nexus-tabs .fa-nexus-tab {
+  white-space: nowrap;
+}
+.fa-nexus-tool-options-button span {
+  white-space: nowrap;
+}
